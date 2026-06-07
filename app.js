@@ -38,7 +38,7 @@ const CONFIG = {
     Change this to any word or phrase you'll remember.
     ─────────────────────────────────────────────────────────────────────────
   */
-  ADMIN_PASSPHRASE: 'hoophouse',
+  ADMIN_PASSPHRASE: 'Dhdjhud77d87!!dj',
 };
 
 // ─── STORAGE KEYS ─────────────────────────────────────
