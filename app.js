@@ -609,6 +609,11 @@ document.getElementById('signupForm').addEventListener('submit', function (e) {
       </div>`;
   }
 
+  // FAQ link beneath confirmation
+  document.getElementById('confirmPayBlock').insertAdjacentHTML('afterend',
+    '<p class="confirm-faq">Questions? <a href="#faq">Read the FAQ</a></p>'
+  );
+
   conf.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
