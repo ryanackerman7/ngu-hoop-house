@@ -159,18 +159,29 @@
   <section class="schedule-section" id="schedule">
     <div class="container">
       <p class="section-label">The Runs</p>
-      <h2 class="section-headline">Weekly Schedule</h2>
-      <p class="section-sub">Doors open 6:15 &nbsp;·&nbsp; Ball tips 6:30 &nbsp;·&nbsp; Winter Garden, FL</p>
+      <h2 class="section-headline">Schedule</h2>
+      <p class="section-sub">Click any scheduled run for details and to sign up.</p>
 
-      <!-- June 2026 monthly calendar — rendered by app.js -->
+      <!-- Monthly calendar — rendered by app.js. Only dates with booked runs appear. -->
       <div id="calendarWrap" class="calendar-wrap"></div>
-
-      <!-- Per-night going counts -->
-      <div class="schedule-grid" id="scheduleGrid">
-        <!-- Rendered by app.js -->
-      </div>
     </div>
   </section>
+
+
+  <!-- ═══════════════════ RUN DETAIL MODAL ═══════════════════ -->
+  <div id="runModalOverlay" class="modal-overlay hidden"
+       role="dialog" aria-modal="true" aria-labelledby="runModalDate">
+    <div class="modal-panel">
+      <div class="modal-header">
+        <h2 class="modal-date" id="runModalDate"></h2>
+        <button class="modal-close" id="runModalClose" aria-label="Close">&times;</button>
+      </div>
+      <div id="runModalContent" class="modal-body"></div>
+      <div class="modal-footer">
+        <button class="btn btn-gold btn-full" id="runModalSignupBtn">Sign Up for This Run &rarr;</button>
+      </div>
+    </div>
+  </div>
 
 
   <!-- ═══════════════════ PRICING ═══════════════════ -->
@@ -224,12 +235,11 @@
         </div>
 
         <div class="form-group">
-          <label>Nights (select at least one)</label>
-          <div class="checkbox-group">
-            <label class="check-label"><input type="checkbox" name="nights" value="tuesday" /> Tuesday</label>
-            <label class="check-label"><input type="checkbox" name="nights" value="wednesday" /> Wednesday</label>
-            <label class="check-label"><input type="checkbox" name="nights" value="thursday" /> Thursday</label>
-          </div>
+          <label for="runDate">Run Date</label>
+          <!-- Options populated by app.js buildRunDateOptions() — only upcoming booked runs appear -->
+          <select id="runDate" name="runDate" required>
+            <option value="" disabled selected>Select a run date</option>
+          </select>
         </div>
 
         <div class="form-group">
@@ -280,27 +290,88 @@
   </section>
 
 
-  <!-- ═══════════════════ ADMIN VIEW ═══════════════════ -->
+  <!-- ═══════════════════ ADMIN PANEL ═══════════════════ -->
   <!--
-    LOCAL-ONLY ADMIN — reads full signup records from localStorage.
-    NOT SECURE. Anyone with DevTools can see this data directly.
-
-    TO DO: Remove before launch. Replace with a real authenticated admin
-    route at NGUHoopHouse.com/admin (Supabase Auth, NextAuth, Clerk, etc.)
-
-    Shortcut: Ctrl+Shift+A  (Windows/Linux)
-              Cmd+Shift+A   (Mac)
+    LOCAL-ONLY ADMIN — NOT SECURE. Anyone with DevTools can read localStorage.
+    Shortcut: Ctrl+Shift+A (Win/Linux) · Cmd+Shift+A (Mac)
     Close:    Escape · or click the backdrop
+    TO DO: Replace with real authenticated backend before launch.
   -->
   <div id="adminOverlay" class="admin-overlay hidden"
-       role="dialog" aria-modal="true" aria-label="Admin — signup records">
+       role="dialog" aria-modal="true" aria-label="NGU Admin">
     <div class="admin-panel">
+
       <div class="admin-header">
-        <h3>Admin — Full Signup Records</h3>
+        <h3>NGU Admin</h3>
         <button class="admin-close" id="adminClose" aria-label="Close">&times;</button>
       </div>
-      <p class="admin-warning">⚠ Local-only · Not secure · Replace with authenticated admin before launch.</p>
-      <div id="adminTable"></div>
+      <p class="admin-warning">⚠ Local-only · Not secure · Replace with authenticated backend before launch.</p>
+
+      <!-- Tab buttons -->
+      <div class="admin-tabs">
+        <button class="admin-tab-btn active" data-tab="runs">Manage Runs</button>
+        <button class="admin-tab-btn"        data-tab="signups">Signups</button>
+      </div>
+
+      <!-- TAB: MANAGE RUNS -->
+      <div id="adminTabRuns">
+        <div id="adminRunList" class="admin-run-list"></div>
+
+        <form id="adminRunForm" class="admin-run-form">
+          <h4 class="admin-form-title">Add / Edit Run</h4>
+
+          <div class="admin-form-row">
+            <div class="admin-form-group">
+              <label for="adminRunDate">Date</label>
+              <input type="date" id="adminRunDate" required />
+            </div>
+            <div class="admin-form-group admin-form-group--wide">
+              <label for="adminRunVenue">Venue Name</label>
+              <input type="text" id="adminRunVenue" placeholder="e.g. Planet Fitness Winter Garden" required />
+            </div>
+          </div>
+
+          <div class="admin-form-group">
+            <label for="adminRunAddr">Address</label>
+            <input type="text" id="adminRunAddr" placeholder="1234 Daniels Rd, Winter Garden FL" />
+          </div>
+
+          <div class="admin-form-row">
+            <div class="admin-form-group">
+              <label for="adminRunDoors">Doors Open</label>
+              <input type="text" id="adminRunDoors" value="6:15 PM" />
+            </div>
+            <div class="admin-form-group">
+              <label for="adminRunTipoff">Tip-off</label>
+              <input type="text" id="adminRunTipoff" value="6:30 PM" />
+            </div>
+            <div class="admin-form-group">
+              <label for="adminRunEnd">Ends</label>
+              <input type="text" id="adminRunEnd" value="9:00 PM" />
+            </div>
+          </div>
+
+          <div class="admin-form-group">
+            <label for="adminRunNote">Note (optional)</label>
+            <input type="text" id="adminRunNote" placeholder="e.g. Bring ID · Limited spots" />
+          </div>
+
+          <div class="admin-form-check">
+            <label class="check-label">
+              <input type="checkbox" id="adminRunIsTest" />
+              Mark as TEST run (displays "TEST" tag — use to test signups/payments before a real venue)
+            </label>
+          </div>
+
+          <button type="submit" class="btn btn-gold" style="margin-top:12px">Save Run</button>
+        </form>
+      </div>
+
+      <!-- TAB: SIGNUPS -->
+      <div id="adminTabSignups" class="hidden">
+        <div id="adminSignupsTable" style="overflow-x:auto"></div>
+      </div>
+
     </div>
   </div>
 

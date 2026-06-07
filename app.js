@@ -1,79 +1,103 @@
 /* ═══════════════════════════════════════════════════════
    NGU Hoop House | app.js
-   All prices + schedule config in CONFIG below.
-   Change any value here without touching HTML/CSS.
    ═══════════════════════════════════════════════════════ */
 
 // ─── CONFIG ───────────────────────────────────────────
-// Edit prices, nights, and times here only.
 const CONFIG = {
-  nights: [
-    { key: 'tuesday',   label: 'Tuesday',   time: '6:30 – 9:00 PM' },
-    { key: 'wednesday', label: 'Wednesday', time: '6:30 – 9:00 PM' },
-    { key: 'thursday',  label: 'Thursday',  time: '6:30 – 9:00 PM' },
-  ],
   tiers: [
-    {
-      key:     'nightly',
-      label:   'Nightly Drop-In',
-      price:   15,
-      per:     'per night',
-      desc:    'Show up whenever you want. Pay per run.',
-      popular: false,
-    },
-    {
-      key:     'weekly',
-      label:   'Weekly Pass',
-      price:   30,
-      per:     'per week',
-      desc:    'All three nights for one week. Best value if you run regularly.',
-      popular: true,
-    },
-    {
-      key:     'monthly',
-      label:   'Monthly Pass',
-      price:   99,
-      per:     'per month',
-      desc:    'Unlimited runs for a full month. Commit to the game.',
-      popular: false,
-    },
+    { key: 'nightly', label: 'Nightly Drop-In', price: 15,  per: 'per night', desc: 'Show up whenever you want. Pay per run.',                              popular: false },
+    { key: 'weekly',  label: 'Weekly Pass',     price: 30,  per: 'per week',  desc: 'All three nights for one week. Best value if you run regularly.',      popular: true  },
+    { key: 'monthly', label: 'Monthly Pass',    price: 99,  per: 'per month', desc: 'Unlimited runs for a full month. Commit to the game.',                 popular: false },
   ],
+
+  /*
+    ═══ GOOGLE SHEETS INSERTION POINT ══════════════════════════════════════
+    After setting up your Apps Script web app (see SHEETS SETUP comment
+    block below), paste the deployed URL here:
+      SHEETS_URL: 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec',
+    Leave blank ('') to skip Sheet posting (localStorage only).
+    ════════════════════════════════════════════════════════════════════════
+  */
+  SHEETS_URL: '',
 };
 
 // ─── STORAGE KEYS ─────────────────────────────────────
 /*
-  PRIVACY SPLIT — two separate localStorage keys intentionally:
+  PRIVACY SPLIT — three separate keys:
 
-  "ngu_hoophouse_signups"  → PRIVATE. Full records: firstName, lastName, DOB,
-                             email, phone, nights[], passTier, signedUpAt.
-                             NEVER read from this key for any public display.
-                             Replace savePrivateSignup() / getPrivateSignups()
-                             with real authenticated API calls when you have a backend.
+  "ngu_hoophouse_runs"     → admin-managed run schedule. Shape:
+                             { 'YYYY-MM-DD': { venue, address, doors, tipoff, end, note, isTest } }
+                             Safe for public display (no PII).
 
-  "ngu_hoophouse_schedule" → PUBLIC display only. Per-night arrays of initials
-                             (e.g. "J.G"). No personal data. Safe to render.
+  "ngu_hoophouse_schedule" → public, per-DATE initials only. Shape:
+                             { 'YYYY-MM-DD': ['J.G', 'R.A'] }
+                             NEVER put full names here.
 
-  This separation ensures no future bug can accidentally expose private fields
-  through the schedule / attendee display.
+  "ngu_hoophouse_signups"  → PRIVATE. Full PII. NEVER render into the DOM.
+                             Replace savePrivateSignup() with a real
+                             authenticated API call when you have a backend.
+
+  TO RESET MANUALLY (e.g. to clear all data from DevTools):
+    Open DevTools → Application → Local Storage →
+    delete every key starting with "ngu_hoophouse_".
 */
 const KEYS = {
-  private: 'ngu_hoophouse_signups',   // NEVER render into the DOM
-  public:  'ngu_hoophouse_schedule',  // initials only — safe to display
-  version: 'ngu_hoophouse_version',   // bump to wipe stale data on next load
+  runs:    'ngu_hoophouse_runs',
+  public:  'ngu_hoophouse_schedule',
+  private: 'ngu_hoophouse_signups',
+  version: 'ngu_hoophouse_version',
 };
 
 // ─── DATA VERSION RESET ───────────────────────────────
-// Bump DATA_VERSION any time you need to wipe old localStorage data.
-const DATA_VERSION = '2';
+/*
+  Bump DATA_VERSION any time you need to wipe ALL stored data on every
+  visitor's next load (e.g. schema changes, going live fresh).
+  '3' = date-keyed schedule, admin-managed runs, seed data cleared.
+
+  NOTE: bumping this also wipes private signups. Only do it before
+  real signups exist, or archive them first.
+*/
+const DATA_VERSION = '3';
 (function resetIfStale() {
   if (localStorage.getItem(KEYS.version) !== DATA_VERSION) {
+    localStorage.removeItem(KEYS.runs);
     localStorage.removeItem(KEYS.public);
+    localStorage.removeItem(KEYS.private);
     localStorage.setItem(KEYS.version, DATA_VERSION);
   }
 })();
 
 
-// ─── STORAGE HELPERS ──────────────────────────────────
+// ─── RUN STORAGE (admin-managed) ──────────────────────
+/*
+  BACKEND PLACEHOLDER — runs stored in localStorage.
+  Replace with authenticated API calls when you have a backend.
+  Run shape: { venue, address, doors, tipoff, end, note, isTest }
+  Keyed by 'YYYY-MM-DD'.
+*/
+function getRuns() {
+  try { return JSON.parse(localStorage.getItem(KEYS.runs)) || {}; }
+  catch { return {}; }
+}
+
+function saveRun(dateStr, runData) {
+  const runs = getRuns();
+  runs[dateStr] = runData;
+  localStorage.setItem(KEYS.runs, JSON.stringify(runs));
+}
+
+function deleteRun(dateStr) {
+  const runs = getRuns();
+  delete runs[dateStr];
+  localStorage.setItem(KEYS.runs, JSON.stringify(runs));
+  // Also wipe public initials for that date
+  const sched = getPublicSchedule();
+  delete sched[dateStr];
+  savePublicSchedule(sched);
+}
+
+
+// ─── SCHEDULE STORAGE (public, initials only) ─────────
 function getPublicSchedule() {
   try { return JSON.parse(localStorage.getItem(KEYS.public)) || {}; }
   catch { return {}; }
@@ -84,6 +108,15 @@ function savePublicSchedule(data) {
   localStorage.setItem(KEYS.public, JSON.stringify(data));
 }
 
+function addToDate(dateStr, initials) {
+  const sched = getPublicSchedule();
+  if (!sched[dateStr]) sched[dateStr] = [];
+  if (!sched[dateStr].includes(initials)) sched[dateStr].push(initials);
+  savePublicSchedule(sched);
+}
+
+
+// ─── PRIVATE SIGNUPS ──────────────────────────────────
 function getPrivateSignups() {
   /*
     BACKEND PLACEHOLDER — reads from localStorage.
@@ -92,7 +125,6 @@ function getPrivateSignups() {
         headers: { Authorization: 'Bearer ' + token }
       });
       return res.json();
-    Only called by the local admin view, never by public display code.
   */
   try { return JSON.parse(localStorage.getItem(KEYS.private)) || []; }
   catch { return []; }
@@ -107,26 +139,26 @@ function savePrivateSignup(record) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(record),
       });
-    Record shape: { firstName, lastName, dob, email, phone,
-                    nights[], passTier, signedUpAt }
+    Record shape: { firstName, lastName, dob, age, email, phone,
+                    dates[], passTier, waiver, signedUpAt }
   */
   const all = getPrivateSignups();
   all.push(record);
   localStorage.setItem(KEYS.private, JSON.stringify(all));
 }
 
+
 // ─── UTILITIES ────────────────────────────────────────
 function toInitials(first, last) {
-  // "Jordan" + "Grant" → "J.G"
   return `${first.trim().charAt(0).toUpperCase()}.${last.trim().charAt(0).toUpperCase()}`;
 }
 
 function calcAge(dobString) {
-  const dob   = new Date(dobString);
-  const today = new Date();
-  let age = today.getFullYear() - dob.getFullYear();
-  const m = today.getMonth() - dob.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
+  const dob = new Date(dobString);
+  const now = new Date();
+  let age = now.getFullYear() - dob.getFullYear();
+  const m = now.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) age--;
   return age;
 }
 
@@ -135,7 +167,6 @@ function formatInitials(arr) {
 }
 
 function escHtml(str) {
-  // Prevents XSS in the admin table display
   if (str == null) return '';
   return String(str)
     .replace(/&/g, '&amp;')
@@ -144,53 +175,78 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// ─── RENDER: JUNE 2026 CALENDAR ───────────────────────
+// 'YYYY-MM-DD' → 'June 9, 2026'
+function formatDateLabel(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+  });
+}
+
+// 'YYYY-MM-DD' → 'Tue, Jun 9'
+function formatDateShort(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+  });
+}
+
+
+// ─── CALENDAR ─────────────────────────────────────────
+const _today = new Date();
+let calState = { year: _today.getFullYear(), month: _today.getMonth() };
+
+const MONTH_NAMES = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
+];
+const DOW_LABELS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
 function renderCalendar() {
   const wrap = document.getElementById('calendarWrap');
   if (!wrap) return;
 
-  const YEAR = 2026, MONTH = 5; // June = index 5
-  const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const RUN_DAYS   = { 2: 'tuesday', 3: 'wednesday', 4: 'thursday' }; // getDay() values
-  const RUN_DOW    = new Set([2, 3, 4]);
+  const { year, month } = calState;
+  const runs     = getRuns();
+  const schedule = getPublicSchedule();
+  const firstDow = new Date(year, month, 1).getDay();
+  const total    = new Date(year, month + 1, 0).getDate();
 
-  const firstDow  = new Date(YEAR, MONTH, 1).getDay(); // 1 = Monday for June 2026
-  const totalDays = new Date(YEAR, MONTH + 1, 0).getDate(); // 30
-  const schedule  = getPublicSchedule();
-
-  // Day-of-week header row
   let html = `
     <div class="cal-header">
-      <span class="cal-title">June 2026</span>
-      <span class="cal-legend"><span class="cal-legend-dot"></span> Run night</span>
+      <button class="cal-nav" id="calPrev" aria-label="Previous month">&#8249;</button>
+      <span class="cal-title">${MONTH_NAMES[month]} ${year}</span>
+      <button class="cal-nav" id="calNext" aria-label="Next month">&#8250;</button>
+      <span class="cal-legend"><span class="cal-legend-dot"></span> Run scheduled</span>
     </div>
     <div class="cal-grid">`;
 
   for (const label of DOW_LABELS) {
-    const isRun = ['Tue','Wed','Thu'].includes(label);
-    html += `<div class="cal-dow${isRun ? ' cal-dow-run' : ''}">${label}</div>`;
+    html += `<div class="cal-dow">${label}</div>`;
   }
 
-  // Blank lead cells
   for (let i = 0; i < firstDow; i++) {
     html += `<div class="cal-cell cal-empty"></div>`;
   }
 
-  // Day cells
-  for (let d = 1; d <= totalDays; d++) {
-    const dow      = new Date(YEAR, MONTH, d).getDay();
-    const nightKey = RUN_DAYS[dow];
+  for (let d = 1; d <= total; d++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const run     = runs[dateStr];
 
-    if (nightKey) {
-      const count = (schedule[nightKey] || []).length;
+    if (run) {
+      const count   = (schedule[dateStr] || []).length;
+      const testTag = run.isTest ? '<span class="cal-test-tag">TEST</span>' : '';
       html += `
-        <div class="cal-cell cal-run" data-night="${nightKey}">
+        <div class="cal-cell cal-run${run.isTest ? ' cal-run-test' : ''}"
+             data-date="${dateStr}" tabindex="0" role="button"
+             aria-label="Run on ${escHtml(formatDateShort(dateStr))} — click for details">
           <span class="cal-date">${d}</span>
+          ${testTag}
+          <span class="cal-venue-name">${escHtml(run.venue)}</span>
           <ul class="cal-info">
-            <li><span class="cal-info-label">📍</span>Winter Garden, FL</li>
-            <li><span class="cal-info-label">🚪</span>Doors 6:15 PM</li>
-            <li><span class="cal-info-label">🏀</span>Tip-off 6:30 PM</li>
-            <li><span class="cal-info-label">🔚</span>Ends 9:00 PM</li>
+            <li>🚪 Doors ${escHtml(run.doors)}</li>
+            <li>🏀 Tip-off ${escHtml(run.tipoff)}</li>
+            <li>🔚 Ends ${escHtml(run.end)}</li>
           </ul>
           <span class="cal-going">${count} going</span>
         </div>`;
@@ -201,33 +257,108 @@ function renderCalendar() {
 
   html += `</div>`;
   wrap.innerHTML = html;
+
+  document.getElementById('calPrev').addEventListener('click', () => {
+    if (calState.month === 0) { calState.year--; calState.month = 11; }
+    else calState.month--;
+    renderCalendar();
+  });
+  document.getElementById('calNext').addEventListener('click', () => {
+    if (calState.month === 11) { calState.year++; calState.month = 0; }
+    else calState.month++;
+    renderCalendar();
+  });
+
+  // Clicking a run cell opens the detail modal
+  wrap.querySelectorAll('.cal-run').forEach(cell => {
+    cell.addEventListener('click', () => openRunModal(cell.dataset.date));
+    cell.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') openRunModal(cell.dataset.date);
+    });
+  });
 }
 
-// ─── RENDER: SCHEDULE ─────────────────────────────────
-function renderSchedule() {
-  const grid     = document.getElementById('scheduleGrid');
-  const schedule = getPublicSchedule();
-  grid.innerHTML  = '';
 
-  for (const night of CONFIG.nights) {
-    const attendees = schedule[night.key] || [];
-    const card = document.createElement('div');
-    card.className     = 'schedule-card';
-    card.dataset.night = night.key;
-    card.innerHTML = `
-      <div class="schedule-day">${night.label}</div>
-      <div class="schedule-time">${night.time}</div>
-      <div class="going-count" id="count-${night.key}">${attendees.length}</div>
-      <div class="going-label">Going</div>
-      <div class="initials-row" id="initials-${night.key}">${formatInitials(attendees)}</div>
-    `;
-    grid.appendChild(card);
+// ─── RUN DETAIL MODAL ─────────────────────────────────
+function openRunModal(dateStr) {
+  const run = getRuns()[dateStr];
+  if (!run) return;
+
+  const attendees = getPublicSchedule()[dateStr] || [];
+  const testBadge = run.isTest
+    ? '<span class="modal-test-tag">TEST RUN</span>'
+    : '';
+
+  document.getElementById('runModalDate').textContent = formatDateLabel(dateStr);
+  document.getElementById('runModalContent').innerHTML = `
+    ${testBadge}
+    <div class="modal-venue">${escHtml(run.venue)}</div>
+    <div class="modal-address">${escHtml(run.address)}</div>
+    <ul class="modal-times">
+      <li><span>Doors open</span>${escHtml(run.doors)}</li>
+      <li><span>Tip-off</span>${escHtml(run.tipoff)}</li>
+      <li><span>Ends</span>${escHtml(run.end)}</li>
+    </ul>
+    ${run.note ? `<p class="modal-note">${escHtml(run.note)}</p>` : ''}
+    <div class="modal-going">
+      <span class="modal-count">${attendees.length}</span>
+      <span class="modal-count-label">Going</span>
+    </div>
+    <div class="modal-initials">${formatInitials(attendees)}</div>`;
+
+  document.getElementById('runModalSignupBtn').onclick = () => {
+    closeRunModal();
+    prefillSignupForm(dateStr);
+    document.getElementById('signup').scrollIntoView({ behavior: 'smooth' });
+  };
+
+  document.getElementById('runModalOverlay').classList.remove('hidden');
+}
+
+function closeRunModal() {
+  document.getElementById('runModalOverlay').classList.add('hidden');
+}
+
+
+// ─── SIGNUP FORM — RUN DATE SELECTOR ──────────────────
+function buildRunDateOptions() {
+  const select = document.getElementById('runDate');
+  if (!select) return;
+
+  const runs  = getRuns();
+  const floor = new Date();
+  floor.setHours(0, 0, 0, 0);
+
+  const upcoming = Object.keys(runs)
+    .filter(d => new Date(d + 'T00:00:00') >= floor)
+    .sort();
+
+  if (upcoming.length === 0) {
+    select.innerHTML = '<option value="" disabled selected>No runs scheduled yet — check back soon</option>';
+    select.disabled  = true;
+  } else {
+    select.disabled  = false;
+    select.innerHTML = '<option value="" disabled selected>Select a run date</option>';
+    for (const d of upcoming) {
+      const r   = runs[d];
+      const tag = r.isTest ? ' [TEST]' : '';
+      select.innerHTML += `<option value="${d}">${escHtml(formatDateShort(d))} — ${escHtml(r.venue)}${tag}</option>`;
+    }
   }
 }
+
+function prefillSignupForm(dateStr) {
+  const select = document.getElementById('runDate');
+  if (!select) return;
+  if (!select.querySelector(`option[value="${dateStr}"]`)) buildRunDateOptions();
+  select.value = dateStr;
+}
+
 
 // ─── RENDER: PRICING ──────────────────────────────────
 function renderPricing() {
   const grid = document.getElementById('pricingGrid');
+  if (!grid) return;
   grid.innerHTML = '';
 
   for (const tier of CONFIG.tiers) {
@@ -238,30 +369,142 @@ function renderPricing() {
       <div class="pricing-tier">${tier.label}</div>
       <div class="pricing-price">$${tier.price}</div>
       <div class="pricing-per">${tier.per}</div>
-      <div class="pricing-desc">${tier.desc}</div>
-    `;
+      <div class="pricing-desc">${tier.desc}</div>`;
     grid.appendChild(card);
   }
 }
 
-// ─── LIVE SCHEDULE UPDATE ─────────────────────────────
-function addToNight(nightKey, initials) {
-  const schedule = getPublicSchedule();
-  if (!schedule[nightKey]) schedule[nightKey] = [];
-  // Skip if same initials already listed (prevents duplicate on re-submit)
-  if (!schedule[nightKey].includes(initials)) {
-    schedule[nightKey].push(initials);
-  }
-  savePublicSchedule(schedule);
 
-  // Update DOM without full re-render
-  const countEl    = document.getElementById(`count-${nightKey}`);
-  const initialsEl = document.getElementById(`initials-${nightKey}`);
-  if (countEl)    countEl.textContent    = schedule[nightKey].length;
-  if (initialsEl) initialsEl.textContent = formatInitials(schedule[nightKey]);
+// ─── GOOGLE SHEETS ────────────────────────────────────
+/*
+  ════════════════════════════════════════════════════════════════════════════
+  GOOGLE SHEETS SETUP — full step-by-step
+
+  GOAL
+  ────
+  Every signup posts to a Google Sheet you own, server-side (no credentials
+  in the public JS). The Sheet has:
+    • "All Signups" master tab — every signup, full details
+    • Per-date tabs (e.g. "2026-07-09") — check-in list with Arrived +
+      ID Checked checkboxes for door use on your phone
+
+  STEP 1 — Create the Sheet
+  ──────────────────────────
+  1. sheets.google.com → New blank spreadsheet
+  2. Rename it: "NGU Hoop House Signups"
+  3. Rename the default tab to: "All Signups"
+  4. In row 1, add these headers:
+     A: First Name  B: Last Name  C: DOB  D: Age  E: Email  F: Phone
+     G: Run Date(s) H: Tier       I: Waiver Y/N    J: Signed Up At
+
+  STEP 2 — Open Apps Script
+  ──────────────────────────
+  Extensions → Apps Script → replace everything in Code.gs with:
+
+  ┌─────────────────────────── Code.gs ────────────────────────────────────
+  │
+  │  const SHEET_ID = 'YOUR_SPREADSHEET_ID'; // from the Sheet's URL
+  │
+  │  function doPost(e) {
+  │    try {
+  │      const data = JSON.parse(e.postData.contents);
+  │      const ss   = SpreadsheetApp.openById(SHEET_ID);
+  │      appendToMaster(ss, data);
+  │      for (const dateStr of (data.dates || [])) {
+  │        upsertDayTab(ss, dateStr, data);
+  │      }
+  │      return ContentService
+  │        .createTextOutput(JSON.stringify({ status: 'ok' }))
+  │        .setMimeType(ContentService.MimeType.JSON);
+  │    } catch(err) {
+  │      return ContentService
+  │        .createTextOutput(JSON.stringify({ status: 'error', message: err.message }))
+  │        .setMimeType(ContentService.MimeType.JSON);
+  │    }
+  │  }
+  │
+  │  function appendToMaster(ss, d) {
+  │    const sheet = ss.getSheetByName('All Signups');
+  │    sheet.appendRow([
+  │      d.firstName, d.lastName, d.dob, d.age, d.email, d.phone,
+  │      (d.dates || []).join(', '), d.passTier,
+  │      d.waiver ? 'Y' : 'N', d.signedUpAt
+  │    ]);
+  │  }
+  │
+  │  function upsertDayTab(ss, dateStr, d) {
+  │    let sheet = ss.getSheetByName(dateStr);
+  │    if (!sheet) {
+  │      // Create tab and add headers + checkbox columns
+  │      sheet = ss.insertSheet(dateStr);
+  │      sheet.appendRow([
+  │        'Full Name','DOB','Age','Phone','Tier','Paid','Arrived','ID Checked'
+  │      ]);
+  │      // Pre-format 500 rows of checkbox columns for Arrived (col 7) and ID Checked (col 8)
+  │      sheet.getRange(2, 7, 500, 2).insertCheckboxes();
+  │      // Freeze header row
+  │      sheet.setFrozenRows(1);
+  │    }
+  │    sheet.appendRow([
+  │      d.firstName + ' ' + d.lastName,
+  │      d.dob, d.age, d.phone, d.passTier, 'N'
+  │      // Arrived + ID Checked checkboxes are already inserted above
+  │    ]);
+  │  }
+  │
+  │  // Allow CORS pre-flight
+  │  function doGet(e) {
+  │    return ContentService.createTextOutput('ok');
+  │  }
+  │
+  └────────────────────────────────────────────────────────────────────────
+
+  STEP 3 — Deploy as a web app
+  ─────────────────────────────
+  1. Apps Script → Deploy → New deployment
+  2. Type: Web app
+  3. Description: "NGU Signups v1"
+  4. Execute as: Me (your Google account)
+  5. Who has access: Anyone
+  6. Click Deploy → Authorize → copy the Web App URL
+
+  STEP 4 — Paste the URL
+  ───────────────────────
+  In app.js CONFIG at the top of this file, set:
+    SHEETS_URL: 'https://script.google.com/macros/s/YOUR_ID/exec',
+
+  STEP 5 — Test
+  ───────────────
+  Submit a test signup. Check DevTools Console — should log
+  "Sheets: posted". Open your Sheet and verify the new row appears
+  in "All Signups" and a per-date tab was created.
+
+  SECURITY NOTE
+  ─────────────
+  The Apps Script URL is public but write-only (POST). No Google
+  credentials are ever stored in the frontend JS. The Sheet itself
+  is only accessible to your Google account.
+  ════════════════════════════════════════════════════════════════════════════
+*/
+async function postToSheets(record) {
+  if (!CONFIG.SHEETS_URL) return; // not configured — skip silently
+  try {
+    // mode: 'no-cors' is required for Apps Script from a browser.
+    // The response will be opaque (unreadable) — that's expected.
+    await fetch(CONFIG.SHEETS_URL, {
+      method:  'POST',
+      mode:    'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(record),
+    });
+    console.log('Sheets: posted (no-cors, response opaque — check your Sheet)');
+  } catch (err) {
+    console.warn('Sheets post failed:', err.message);
+  }
 }
 
-// ─── FORM ─────────────────────────────────────────────
+
+// ─── FORM HELPERS ─────────────────────────────────────
 function showError(msg) {
   const el = document.getElementById('formError');
   el.textContent = msg;
@@ -273,11 +516,8 @@ function clearError() {
   el.textContent = '';
   el.classList.remove('visible');
 }
-function getCheckedNights() {
-  return Array.from(document.querySelectorAll('input[name="nights"]:checked'))
-    .map(el => el.value);
-}
 
+// ─── FORM SUBMIT ──────────────────────────────────────
 document.getElementById('signupForm').addEventListener('submit', function (e) {
   e.preventDefault();
   clearError();
@@ -287,95 +527,89 @@ document.getElementById('signupForm').addEventListener('submit', function (e) {
   const dob       = document.getElementById('dob').value;
   const email     = document.getElementById('email').value.trim();
   const phone     = document.getElementById('phone').value.trim();
+  const runDate   = document.getElementById('runDate').value;
   const passTier  = document.getElementById('passTier').value;
   const waiver    = document.getElementById('waiverCheck').checked;
-  const nights    = getCheckedNights();
 
-  // Validation
   if (!firstName || !lastName)        return showError('Please enter your full name.');
   if (!dob)                           return showError('Please enter your date of birth.');
-  if (calcAge(dob) < 18)             return showError('You must be 18 or older to participate.');
+  if (calcAge(dob) < 18)              return showError('You must be 18 or older to participate.');
   if (!email || !email.includes('@')) return showError('Please enter a valid email address.');
   if (!phone)                         return showError('Please enter a phone number.');
-  if (nights.length === 0)           return showError('Please select at least one night.');
+  if (!runDate)                       return showError('Please select a run date.');
   if (!passTier)                      return showError('Please select a pass type.');
   if (!waiver)                        return showError('Please agree to the liability waiver to continue.');
 
   const initials = toInitials(firstName, lastName);
+  const age      = calcAge(dob);
+  const dates    = [runDate];
 
-  // PRIVATE record — full data, never shown in the DOM
+  // PRIVATE record — full PII, never shown in the DOM
   const privateRecord = {
-    firstName, lastName, dob, email, phone,
-    nights, passTier,
+    firstName, lastName, dob, age, email, phone,
+    dates, passTier, waiver: true,
     signedUpAt: new Date().toISOString(),
   };
 
+  savePrivateSignup(privateRecord);
+  addToDate(runDate, initials);
+
   /*
-    BACKEND PLACEHOLDER — replace savePrivateSignup with a real API POST:
+    BACKEND PLACEHOLDER — also POST to your real API when ready:
       await fetch('/api/signups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(privateRecord),
       });
   */
-  savePrivateSignup(privateRecord);
+  postToSheets(privateRecord);
 
-  // PUBLIC — add initials only to chosen nights
-  for (const night of nights) addToNight(night, initials);
+  // Refresh calendar so going count updates immediately
+  renderCalendar();
 
-  // Show confirmation, hide form
+  // Show confirmation
   document.getElementById('signupForm').classList.add('hidden');
   const conf = document.getElementById('confirmationMsg');
   conf.classList.remove('hidden');
 
-  // ── Payment gate logic ──────────────────────────────────────────────
-  // Nightly: pay per session — hit paywall immediately after each signup.
-  // Weekly / Monthly: pass covers all selected nights — book freely.
   const tierConfig = CONFIG.tiers.find(t => t.key === passTier);
-  const nightLabels = nights.map(n => {
-    const nc = CONFIG.nights.find(c => c.key === n);
-    return nc ? nc.label : n;
-  }).join(', ');
+  const dateLabel  = formatDateShort(runDate);
 
   if (passTier === 'nightly') {
-    document.getElementById('confirmHeadline').textContent = "ALMOST THERE.";
+    document.getElementById('confirmHeadline').textContent = 'ALMOST THERE.';
     document.getElementById('confirmSub').textContent =
-      `You're signed up for ${nightLabels}. Complete payment below to lock in your spot — $15 per night.`;
+      `You're signed up for ${dateLabel}. Complete payment below to lock in your spot.`;
     document.getElementById('confirmPayBlock').innerHTML = `
       <div class="pay-wall">
         <p class="pay-wall-label">Pay to secure your spot</p>
         <p class="pay-wall-amount">$15 <span>/ night</span></p>
         <!--
-          ═══ STRIPE INSERTION POINT (NIGHTLY) ══════════════════════════════
-          Replace button onclick with:
+          ═══ STRIPE INSERTION POINT (NIGHTLY) ═══════════════════════════
+          Replace onclick with:
             window.location.href = 'https://buy.stripe.com/YOUR_NIGHTLY_LINK';
-          ════════════════════════════════════════════════════════════════════
+          ════════════════════════════════════════════════════════════════
         -->
-        <button class="btn btn-gold" id="paymentBtn"
-                onclick="alert('Stripe Checkout goes here — nightly $15.')">
+        <button class="btn btn-gold" onclick="alert('Stripe Checkout — nightly $15')">
           Pay Now &rarr;
         </button>
       </div>`;
   } else {
-    // Weekly or Monthly — pass covers all bookings
     const passLabel = tierConfig ? tierConfig.label : passTier;
     const passPrice = tierConfig ? `$${tierConfig.price}` : '';
     document.getElementById('confirmHeadline').textContent = "YOU'RE IN.";
     document.getElementById('confirmSub').textContent =
-      `Your ${passLabel} covers all your nights (${nightLabels}). Complete payment once and you're good to book every run in your window.`;
+      `Your ${passLabel} covers ${dateLabel}. Complete payment once — you're set for your run window.`;
     document.getElementById('confirmPayBlock').innerHTML = `
       <div class="pay-wall pay-wall--pass">
-        <p class="pay-wall-label">${passLabel}</p>
+        <p class="pay-wall-label">${escHtml(passLabel)}</p>
         <p class="pay-wall-amount">${passPrice} <span>one payment — all your runs</span></p>
         <!--
-          ═══ STRIPE INSERTION POINT (PASS) ═════════════════════════════════
-          Replace button onclick with:
-            const LINKS = { weekly: 'https://buy.stripe.com/...', monthly: 'https://buy.stripe.com/...' };
-            window.location.href = LINKS[passTier];
-          ════════════════════════════════════════════════════════════════════
+          ═══ STRIPE INSERTION POINT (PASS) ═══════════════════════════════
+          const LINKS = { weekly: 'https://buy.stripe.com/...', monthly: '...' };
+          window.location.href = LINKS[passTier];
+          ════════════════════════════════════════════════════════════════
         -->
-        <button class="btn btn-gold" id="paymentBtn"
-                onclick="alert('Stripe Checkout goes here — ${passLabel}.')">
+        <button class="btn btn-gold" onclick="alert('Stripe Checkout — ${escHtml(passLabel)}')">
           Activate Pass &rarr;
         </button>
       </div>`;
@@ -384,12 +618,11 @@ document.getElementById('signupForm').addEventListener('submit', function (e) {
   conf.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
+
 // ─── LOGO BACKGROUND REMOVAL ──────────────────────────
 /*
-  The logo file has a near-black (non-transparent) background.
-  This canvas pass replaces any pixel darker than `threshold` with
-  transparency so the logo floats clean on the dark page.
-  Safe to remove if a future logo file already has a transparent background.
+  Canvas pass: strips near-black background from the logo PNG so it
+  floats cleanly on the dark page. Remove when you have a transparent logo.
 */
 function removeLogoBg(imgEl, threshold) {
   threshold = threshold || 70;
@@ -402,16 +635,13 @@ function removeLogoBg(imgEl, threshold) {
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const px   = data.data;
     for (let i = 0; i < px.length; i += 4) {
-      if (px[i] < threshold && px[i+1] < threshold && px[i+2] < threshold) {
-        px[i+3] = 0;
-      }
+      if (px[i] < threshold && px[i+1] < threshold && px[i+2] < threshold) px[i+3] = 0;
     }
     ctx.putImageData(data, 0, 0);
     imgEl.src = canvas.toDataURL('image/png');
-  } catch (err) {
-    // Canvas tainted (cross-origin) — skip bg removal silently
-  }
+  } catch (err) { /* cross-origin — skip silently */ }
 }
+
 
 // ─── NAV MOBILE TOGGLE ────────────────────────────────
 (function initNav() {
@@ -423,8 +653,6 @@ function removeLogoBg(imgEl, threshold) {
     const open = links.classList.toggle('open');
     toggle.setAttribute('aria-expanded', String(open));
   });
-
-  // Close mobile nav when a link is tapped
   links.querySelectorAll('a').forEach(a => {
     a.addEventListener('click', () => {
       links.classList.remove('open');
@@ -433,55 +661,159 @@ function removeLogoBg(imgEl, threshold) {
   });
 })();
 
-// ─── ADMIN VIEW ───────────────────────────────────────
-/*
-  LOCAL-ONLY ADMIN — shows full signup records from localStorage in a modal.
-  NOT SECURE. Anyone with DevTools can read localStorage directly.
 
-  TO DO: Delete this panel entirely before launch. Build a real authenticated
-  admin route at NGUHoopHouse.com/admin (Supabase Auth, NextAuth, Clerk, etc.)
+// ─── RUN DETAIL MODAL CLOSE HANDLERS ─────────────────
+document.getElementById('runModalClose').addEventListener('click', closeRunModal);
+document.getElementById('runModalOverlay').addEventListener('click', function (e) {
+  if (e.target === this) closeRunModal();
+});
+
+
+// ─── ADMIN ────────────────────────────────────────────
+/*
+  LOCAL-ONLY ADMIN — NOT SECURE.
+  Anyone with DevTools can read localStorage directly.
+  Build a real authenticated admin route before launch.
 
   Shortcut: Ctrl+Shift+A (Win/Linux) · Cmd+Shift+A (Mac)
-  Close:    Escape · or click the backdrop
+  Tabs:     Manage Runs | Signups
 */
+
 function openAdmin() {
-  const signups  = getPrivateSignups();
-  const tableDiv = document.getElementById('adminTable');
-
-  if (signups.length === 0) {
-    tableDiv.innerHTML = '<p class="admin-empty">No signups yet.</p>';
-  } else {
-    const rows = signups.map((s, i) => `
-      <tr>
-        <td>${i + 1}</td>
-        <td>${escHtml(s.firstName)} ${escHtml(s.lastName)}</td>
-        <td>${escHtml(s.dob)}</td>
-        <td>${escHtml(s.email)}</td>
-        <td>${escHtml(s.phone)}</td>
-        <td>${(s.nights || []).join(', ')}</td>
-        <td>${escHtml(s.passTier)}</td>
-        <td style="white-space:nowrap">${new Date(s.signedUpAt).toLocaleString()}</td>
-      </tr>
-    `).join('');
-
-    tableDiv.innerHTML = `
-      <table>
-        <thead>
-          <tr>
-            <th>#</th><th>Name</th><th>DOB</th><th>Email</th>
-            <th>Phone</th><th>Nights</th><th>Pass</th><th>Signed Up</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>`;
-  }
-
+  renderAdminRuns();
+  renderAdminSignups();
+  switchAdminTab('runs');
   document.getElementById('adminOverlay').classList.remove('hidden');
 }
 
 function closeAdmin() {
   document.getElementById('adminOverlay').classList.add('hidden');
 }
+
+function switchAdminTab(tab) {
+  document.querySelectorAll('.admin-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  document.getElementById('adminTabRuns').classList.toggle('hidden', tab !== 'runs');
+  document.getElementById('adminTabSignups').classList.toggle('hidden', tab !== 'signups');
+}
+
+// Render existing runs list
+function renderAdminRuns() {
+  const runs  = getRuns();
+  const dates = Object.keys(runs).sort();
+  const list  = document.getElementById('adminRunList');
+
+  if (dates.length === 0) {
+    list.innerHTML = '<p class="admin-empty">No runs scheduled yet. Add one below.</p>';
+  } else {
+    list.innerHTML = dates.map(d => {
+      const r = runs[d];
+      return `
+        <div class="admin-run-item${r.isTest ? ' is-test' : ''}">
+          <div class="admin-run-meta">
+            <strong>${escHtml(formatDateShort(d))}</strong>
+            ${r.isTest ? '<span class="admin-test-tag">TEST</span>' : ''}
+            <span class="admin-run-venue">${escHtml(r.venue)}</span>
+            <span class="admin-run-addr">${escHtml(r.address)}</span>
+            <span class="admin-run-times">${escHtml(r.doors)} · ${escHtml(r.tipoff)} · ${escHtml(r.end)}</span>
+            ${r.note ? `<span class="admin-run-note">${escHtml(r.note)}</span>` : ''}
+          </div>
+          <div class="admin-run-actions">
+            <button class="btn-admin-sm btn-admin-edit"   onclick="editRun('${d}')">Edit</button>
+            <button class="btn-admin-sm btn-admin-delete" onclick="confirmDeleteRun('${d}')">Delete</button>
+          </div>
+        </div>`;
+    }).join('');
+  }
+}
+
+// Populate the add/edit form for an existing run
+function editRun(dateStr) {
+  const r = getRuns()[dateStr] || {};
+  document.getElementById('adminRunDate').value    = dateStr;
+  document.getElementById('adminRunVenue').value   = r.venue   || '';
+  document.getElementById('adminRunAddr').value    = r.address || '';
+  document.getElementById('adminRunDoors').value   = r.doors   || '6:15 PM';
+  document.getElementById('adminRunTipoff').value  = r.tipoff  || '6:30 PM';
+  document.getElementById('adminRunEnd').value     = r.end     || '9:00 PM';
+  document.getElementById('adminRunNote').value    = r.note    || '';
+  document.getElementById('adminRunIsTest').checked = !!r.isTest;
+  document.getElementById('adminRunForm').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function confirmDeleteRun(dateStr) {
+  if (confirm(`Delete run on ${formatDateShort(dateStr)}?\n\nThis also clears the public attendee list for that date.`)) {
+    deleteRun(dateStr);
+    renderAdminRuns();
+    buildRunDateOptions();
+    renderCalendar();
+  }
+}
+
+// Add/edit form submit
+document.getElementById('adminRunForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  const dateStr = document.getElementById('adminRunDate').value;
+  if (!dateStr) { alert('Please choose a date.'); return; }
+
+  saveRun(dateStr, {
+    venue:   document.getElementById('adminRunVenue').value.trim(),
+    address: document.getElementById('adminRunAddr').value.trim(),
+    doors:   document.getElementById('adminRunDoors').value.trim(),
+    tipoff:  document.getElementById('adminRunTipoff').value.trim(),
+    end:     document.getElementById('adminRunEnd').value.trim(),
+    note:    document.getElementById('adminRunNote').value.trim(),
+    isTest:  document.getElementById('adminRunIsTest').checked,
+  });
+
+  // Reset form to defaults
+  this.reset();
+  document.getElementById('adminRunDoors').value  = '6:15 PM';
+  document.getElementById('adminRunTipoff').value = '6:30 PM';
+  document.getElementById('adminRunEnd').value    = '9:00 PM';
+
+  renderAdminRuns();
+  buildRunDateOptions();
+  renderCalendar();
+});
+
+// Render signups table
+function renderAdminSignups() {
+  const signups  = getPrivateSignups();
+  const tableDiv = document.getElementById('adminSignupsTable');
+
+  if (signups.length === 0) {
+    tableDiv.innerHTML = '<p class="admin-empty">No signups yet.</p>';
+    return;
+  }
+
+  const rows = signups.map((s, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${escHtml(s.firstName)} ${escHtml(s.lastName)}</td>
+      <td>${escHtml(s.dob)}</td>
+      <td>${escHtml(s.email)}</td>
+      <td>${escHtml(s.phone)}</td>
+      <td>${(s.dates || []).join(', ')}</td>
+      <td>${escHtml(s.passTier)}</td>
+      <td style="white-space:nowrap">${new Date(s.signedUpAt).toLocaleString()}</td>
+    </tr>`).join('');
+
+  tableDiv.innerHTML = `
+    <table>
+      <thead><tr>
+        <th>#</th><th>Name</th><th>DOB</th><th>Email</th>
+        <th>Phone</th><th>Run Date(s)</th><th>Pass</th><th>Signed Up</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+// Admin tab buttons
+document.querySelectorAll('.admin-tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchAdminTab(btn.dataset.tab));
+});
 
 document.getElementById('adminClose').addEventListener('click', closeAdmin);
 
@@ -491,23 +823,23 @@ document.addEventListener('keydown', function (e) {
     document.getElementById('adminOverlay').classList.contains('hidden')
       ? openAdmin() : closeAdmin();
   }
-  if (e.key === 'Escape') closeAdmin();
+  if (e.key === 'Escape') { closeAdmin(); closeRunModal(); }
 });
 
 document.getElementById('adminOverlay').addEventListener('click', function (e) {
   if (e.target === this) closeAdmin();
 });
 
+
 // ─── INIT ─────────────────────────────────────────────
 (function init() {
   renderCalendar();
-  renderSchedule();
+  buildRunDateOptions();
   renderPricing();
 
-  // Strip dark background from every logo instance on the page
   document.querySelectorAll('.nav-logo-img, .footer-logo-img').forEach(img => {
-    const run = () => removeLogoBg(img, 70);
-    if (img.complete && img.naturalWidth) run();
-    else img.addEventListener('load', run);
+    const go = () => removeLogoBg(img, 70);
+    if (img.complete && img.naturalWidth) go();
+    else img.addEventListener('load', go);
   });
 })();
