@@ -305,15 +305,9 @@
         <h3>NGU Admin</h3>
         <button class="admin-close" id="adminClose" aria-label="Close">&times;</button>
       </div>
-      <p class="admin-warning">⚠ Local-only · Not secure · Replace with authenticated backend before launch.</p>
+      <p class="admin-warning">⚠ Passphrase-gated only — not cryptographically secure. Run schedule data only. No signup PII here.</p>
 
-      <!-- Tab buttons -->
-      <div class="admin-tabs">
-        <button class="admin-tab-btn active" data-tab="runs">Manage Runs</button>
-        <button class="admin-tab-btn"        data-tab="signups">Signups</button>
-      </div>
-
-      <!-- TAB: MANAGE RUNS -->
+      <!-- MANAGE RUNS (only content — no signups tab) -->
       <div id="adminTabRuns">
         <div id="adminRunList" class="admin-run-list"></div>
 
@@ -365,11 +359,6 @@
 
           <button type="submit" class="btn btn-gold" style="margin-top:12px">Save Run</button>
         </form>
-      </div>
-
-      <!-- TAB: SIGNUPS -->
-      <div id="adminTabSignups" class="hidden">
-        <div id="adminSignupsTable" style="overflow-x:auto"></div>
       </div>
 
     </div>

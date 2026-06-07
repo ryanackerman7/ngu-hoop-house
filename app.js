@@ -15,37 +15,56 @@ const CONFIG = {
     After setting up your Apps Script web app (see SHEETS SETUP comment
     block below), paste the deployed URL here:
       SHEETS_URL: 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec',
-    Leave blank ('') to skip Sheet posting (localStorage only).
+    Leave blank ('') to disable Sheet posting entirely.
     ════════════════════════════════════════════════════════════════════════
   */
   SHEETS_URL: '',
+
+  /*
+    ─── ADMIN PASSPHRASE ────────────────────────────────────────────────────
+    IMPORTANT — READ THIS:
+    This is LIGHT DETERRENCE only. It stops casual nosiness. It is NOT real
+    security: the passphrase lives in this public JS file and anyone who views
+    source can read it. Do NOT use this to protect anything sensitive.
+
+    Real security for PII lives entirely behind your Google account on the
+    Sheet — that requires Google credentials to access, which this site
+    never touches.
+
+    The admin panel after these changes only manages run dates (venue, times).
+    There is NO signup PII stored or displayed here. The worst a passphrase-
+    guesser can do is mess with your run schedule.
+
+    Change this to any word or phrase you'll remember.
+    ─────────────────────────────────────────────────────────────────────────
+  */
+  ADMIN_PASSPHRASE: 'hoophouse',
 };
 
 // ─── STORAGE KEYS ─────────────────────────────────────
 /*
-  PRIVACY SPLIT — three separate keys:
+  localStorage contains ONLY non-PII data:
 
-  "ngu_hoophouse_runs"     → admin-managed run schedule. Shape:
-                             { 'YYYY-MM-DD': { venue, address, doors, tipoff, end, note, isTest } }
-                             Safe for public display (no PII).
+  "ngu_hoophouse_runs"     → admin-managed run schedule (no PII).
+                             Shape: { 'YYYY-MM-DD': { venue, address,
+                             doors, tipoff, end, note, isTest } }
 
-  "ngu_hoophouse_schedule" → public, per-DATE initials only. Shape:
-                             { 'YYYY-MM-DD': ['J.G', 'R.A'] }
-                             NEVER put full names here.
+  "ngu_hoophouse_schedule" → per-date INITIALS only (no PII).
+                             Shape: { 'YYYY-MM-DD': ['J.G', 'R.A'] }
 
-  "ngu_hoophouse_signups"  → PRIVATE. Full PII. NEVER render into the DOM.
-                             Replace savePrivateSignup() with a real
-                             authenticated API call when you have a backend.
+  Full PII (name, DOB, email, phone) is NEVER written to localStorage.
+  It is collected in memory, posted to Google Sheets via Apps Script,
+  and immediately discarded from the JS runtime. The browser retains
+  nothing sensitive after the form submission completes.
 
-  TO RESET MANUALLY (e.g. to clear all data from DevTools):
-    Open DevTools → Application → Local Storage →
-    delete every key starting with "ngu_hoophouse_".
+  TO RESET (e.g. clear run schedule from DevTools):
+    Application → Local Storage → delete keys starting with "ngu_hoophouse_"
 */
 const KEYS = {
   runs:    'ngu_hoophouse_runs',
   public:  'ngu_hoophouse_schedule',
-  private: 'ngu_hoophouse_signups',
   version: 'ngu_hoophouse_version',
+  // NOTE: there is intentionally NO "private" key — PII never touches localStorage
 };
 
 // ─── DATA VERSION RESET ───────────────────────────────
@@ -62,7 +81,7 @@ const DATA_VERSION = '3';
   if (localStorage.getItem(KEYS.version) !== DATA_VERSION) {
     localStorage.removeItem(KEYS.runs);
     localStorage.removeItem(KEYS.public);
-    localStorage.removeItem(KEYS.private);
+    // No private key to clear — PII is never stored in localStorage
     localStorage.setItem(KEYS.version, DATA_VERSION);
   }
 })();
@@ -116,36 +135,18 @@ function addToDate(dateStr, initials) {
 }
 
 
-// ─── PRIVATE SIGNUPS ──────────────────────────────────
-function getPrivateSignups() {
-  /*
-    BACKEND PLACEHOLDER — reads from localStorage.
-    Replace with:
-      const res = await fetch('/api/signups', {
-        headers: { Authorization: 'Bearer ' + token }
-      });
-      return res.json();
-  */
-  try { return JSON.parse(localStorage.getItem(KEYS.private)) || []; }
-  catch { return []; }
-}
+// ─── PII POLICY ───────────────────────────────────────
+/*
+  Full signup data (name, DOB, email, phone) is NEVER written to
+  localStorage. On form submit it exists only in memory long enough to:
+    1. Derive initials (first + last initial) → written to public schedule
+    2. POST to Google Sheets via Apps Script (see postToSheets below)
+  After that the JS object goes out of scope and is garbage-collected.
 
-function savePrivateSignup(record) {
-  /*
-    BACKEND PLACEHOLDER — writes to localStorage.
-    Replace with:
-      await fetch('/api/signups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(record),
-      });
-    Record shape: { firstName, lastName, dob, age, email, phone,
-                    dates[], passTier, waiver, signedUpAt }
-  */
-  const all = getPrivateSignups();
-  all.push(record);
-  localStorage.setItem(KEYS.private, JSON.stringify(all));
-}
+  There is no getPrivateSignups() or savePrivateSignup() function.
+  All historical signup data lives exclusively in your Google Sheet,
+  behind your Google account credentials.
+*/
 
 
 // ─── UTILITIES ────────────────────────────────────────
@@ -551,17 +552,10 @@ document.getElementById('signupForm').addEventListener('submit', function (e) {
     signedUpAt: new Date().toISOString(),
   };
 
-  savePrivateSignup(privateRecord);
+  // PII exists only in memory here. addToDate writes initials only.
+  // postToSheets fires it to Google Sheets then it goes out of scope.
+  // Nothing with PII is ever written to localStorage.
   addToDate(runDate, initials);
-
-  /*
-    BACKEND PLACEHOLDER — also POST to your real API when ready:
-      await fetch('/api/signups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(privateRecord),
-      });
-  */
   postToSheets(privateRecord);
 
   // Refresh calendar so going count updates immediately
@@ -671,31 +665,47 @@ document.getElementById('runModalOverlay').addEventListener('click', function (e
 
 // ─── ADMIN ────────────────────────────────────────────
 /*
-  LOCAL-ONLY ADMIN — NOT SECURE.
-  Anyone with DevTools can read localStorage directly.
-  Build a real authenticated admin route before launch.
+  ADMIN PANEL — manages run schedule only. No PII here.
+
+  PASSPHRASE GATE (CONFIG.ADMIN_PASSPHRASE):
+  ─────────────────────────────────────────
+  This is LIGHT DETERRENCE, not real security. The passphrase is in
+  this public JS file — anyone who views source can read it. Its only
+  job is to stop casual stumbling or accidental keypresses from
+  opening the panel.
+
+  Real security for sensitive data (signups, PII) lives behind your
+  Google account on the Sheet. That requires actual Google credentials
+  to access. This panel cannot touch it.
+
+  Passphrase is remembered for the browser session (sessionStorage) so
+  you don't retype it every time you open/close the panel.
 
   Shortcut: Ctrl+Shift+A (Win/Linux) · Cmd+Shift+A (Mac)
-  Tabs:     Manage Runs | Signups
 */
 
+// Session flag — avoids re-prompting while the tab is open
+const ADMIN_SESSION_KEY = 'ngu_admin_auth';
+
 function openAdmin() {
+  // Check session first, then passphrase
+  if (!sessionStorage.getItem(ADMIN_SESSION_KEY)) {
+    const input = prompt('Admin passphrase:');
+    if (input === null) return; // cancelled
+    if (input.trim() !== CONFIG.ADMIN_PASSPHRASE) {
+      alert('Incorrect passphrase.');
+      return;
+    }
+    // Remember for this browser session only (cleared on tab close)
+    sessionStorage.setItem(ADMIN_SESSION_KEY, '1');
+  }
+
   renderAdminRuns();
-  renderAdminSignups();
-  switchAdminTab('runs');
   document.getElementById('adminOverlay').classList.remove('hidden');
 }
 
 function closeAdmin() {
   document.getElementById('adminOverlay').classList.add('hidden');
-}
-
-function switchAdminTab(tab) {
-  document.querySelectorAll('.admin-tab-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.tab === tab);
-  });
-  document.getElementById('adminTabRuns').classList.toggle('hidden', tab !== 'runs');
-  document.getElementById('adminTabSignups').classList.toggle('hidden', tab !== 'signups');
 }
 
 // Render existing runs list
@@ -776,43 +786,6 @@ document.getElementById('adminRunForm').addEventListener('submit', function (e) 
   renderAdminRuns();
   buildRunDateOptions();
   renderCalendar();
-});
-
-// Render signups table
-function renderAdminSignups() {
-  const signups  = getPrivateSignups();
-  const tableDiv = document.getElementById('adminSignupsTable');
-
-  if (signups.length === 0) {
-    tableDiv.innerHTML = '<p class="admin-empty">No signups yet.</p>';
-    return;
-  }
-
-  const rows = signups.map((s, i) => `
-    <tr>
-      <td>${i + 1}</td>
-      <td>${escHtml(s.firstName)} ${escHtml(s.lastName)}</td>
-      <td>${escHtml(s.dob)}</td>
-      <td>${escHtml(s.email)}</td>
-      <td>${escHtml(s.phone)}</td>
-      <td>${(s.dates || []).join(', ')}</td>
-      <td>${escHtml(s.passTier)}</td>
-      <td style="white-space:nowrap">${new Date(s.signedUpAt).toLocaleString()}</td>
-    </tr>`).join('');
-
-  tableDiv.innerHTML = `
-    <table>
-      <thead><tr>
-        <th>#</th><th>Name</th><th>DOB</th><th>Email</th>
-        <th>Phone</th><th>Run Date(s)</th><th>Pass</th><th>Signed Up</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-}
-
-// Admin tab buttons
-document.querySelectorAll('.admin-tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => switchAdminTab(btn.dataset.tab));
 });
 
 document.getElementById('adminClose').addEventListener('click', closeAdmin);
