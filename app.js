@@ -61,29 +61,6 @@ const KEYS = {
   public:  'ngu_hoophouse_schedule',  // initials only — safe to display
 };
 
-// ─── SEED DATA ────────────────────────────────────────
-/*
-  SEED — fake placeholder initials so the schedule isn't empty on demo day.
-  DELETE this block and the seedSchedule() call in init() before going live.
-  Also clear the ngu_hoophouse_schedule key in localStorage at launch.
-*/
-const SEED = {
-  tuesday:   ['D.R', 'M.T', 'K.J', 'A.W'],
-  wednesday: ['L.H', 'C.B', 'T.N'],
-  thursday:  ['R.P', 'J.M', 'S.K', 'E.G'],
-};
-
-function seedSchedule() {
-  const existing = getPublicSchedule();
-  let changed = false;
-  for (const night of CONFIG.nights) {
-    if (!existing[night.key] || existing[night.key].length === 0) {
-      existing[night.key] = [...SEED[night.key]];
-      changed = true;
-    }
-  }
-  if (changed) savePublicSchedule(existing);
-}
 
 // ─── STORAGE HELPERS ──────────────────────────────────
 function getPublicSchedule() {
@@ -512,7 +489,6 @@ document.getElementById('adminOverlay').addEventListener('click', function (e) {
 
 // ─── INIT ─────────────────────────────────────────────
 (function init() {
-  seedSchedule();   // ← REMOVE before launch (delete this + the SEED constant above)
   renderCalendar();
   renderSchedule();
   renderPricing();
