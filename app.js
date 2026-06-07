@@ -59,7 +59,18 @@ const CONFIG = {
 const KEYS = {
   private: 'ngu_hoophouse_signups',   // NEVER render into the DOM
   public:  'ngu_hoophouse_schedule',  // initials only — safe to display
+  version: 'ngu_hoophouse_version',   // bump to wipe stale data on next load
 };
+
+// ─── DATA VERSION RESET ───────────────────────────────
+// Bump DATA_VERSION any time you need to wipe old localStorage data.
+const DATA_VERSION = '2';
+(function resetIfStale() {
+  if (localStorage.getItem(KEYS.version) !== DATA_VERSION) {
+    localStorage.removeItem(KEYS.public);
+    localStorage.setItem(KEYS.version, DATA_VERSION);
+  }
+})();
 
 
 // ─── STORAGE HELPERS ──────────────────────────────────
